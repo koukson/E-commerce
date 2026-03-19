@@ -1,7 +1,8 @@
 import express, { Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { authenticateToken, requireAdmin, requireAdminManager, AuthRequest } from '../middleware/auth.middleware.js';
+import { authenticateToken, requireAdmin, requireAdminManager, requireAdminOrSuperadmin, AuthRequest } from '../middleware/auth.middleware.js';
 import prisma from '../config/database.js';
+import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
@@ -317,7 +318,7 @@ router.put(
 // ========== GESTION DES UTILISATEURS ==========
 
 // Obtenir tous les utilisateurs (sauf superadmin pour les non-superadmin)
-router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/users', requireAdminManager, async (req: AuthRequest, res: Response) => {
   try {
     const currentUserRole = req.userRole;
     const where: any = {};
@@ -350,7 +351,7 @@ router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
 // Créer un nouvel utilisateur/admin
 router.post(
   '/users',
-  requireAdmin,
+  requireAdminManager,
   [
     body('name').trim().isLength({ min: 2 }).withMessage('Le nom doit contenir au moins 2 caractères'),
     body('email').isEmail().withMessage('Email invalide'),
@@ -412,7 +413,7 @@ router.post(
 // Modifier un utilisateur
 router.put(
   '/users/:id',
-  requireAdmin,
+  requireAdminManager,
   [
     body('name').optional().trim().isLength({ min: 2 }),
     body('email').optional().isEmail(),
@@ -486,7 +487,7 @@ router.put(
 );
 
 // Supprimer un utilisateur
-router.delete('/users/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.delete('/users/:id', requireAdminManager, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const currentUserRole = req.userRole;
@@ -671,7 +672,7 @@ const DEFAULT_CONTACT = {
   address: '123 rue du Commerce, 75001 Paris, France',
 };
 
-router.get('/settings/about', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/settings/about', requireAdminOrSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
     const settings = await prisma.siteSettings.findUnique({ where: { key: 'about' } });
     const content = settings?.content ? JSON.parse(settings.content) : DEFAULT_ABOUT;
@@ -681,7 +682,7 @@ router.get('/settings/about', requireAdmin, async (req: AuthRequest, res: Respon
   }
 });
 
-router.put('/settings/about', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.put('/settings/about', requireAdminOrSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
     const content = req.body;
     await prisma.siteSettings.upsert({
@@ -695,7 +696,7 @@ router.put('/settings/about', requireAdmin, async (req: AuthRequest, res: Respon
   }
 });
 
-router.get('/settings/contact', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/settings/contact', requireAdminOrSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
     const settings = await prisma.siteSettings.findUnique({ where: { key: 'contact' } });
     const content = settings?.content ? JSON.parse(settings.content) : DEFAULT_CONTACT;
@@ -705,7 +706,7 @@ router.get('/settings/contact', requireAdmin, async (req: AuthRequest, res: Resp
   }
 });
 
-router.put('/settings/contact', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.put('/settings/contact', requireAdminOrSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
     const content = req.body;
     await prisma.siteSettings.upsert({

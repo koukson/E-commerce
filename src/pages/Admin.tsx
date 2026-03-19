@@ -36,6 +36,9 @@ const Admin = () => {
   const isAdminRole = (role?: string) =>
     role === 'admin' || role === 'moderator' || role === 'superadmin';
 
+  const isContentManagerRole = (role?: string) =>
+    role === 'admin' || role === 'superadmin';
+
   useEffect(() => {
     if (loading) {
       return;
@@ -57,7 +60,9 @@ const Admin = () => {
     } else if (activeTab === 'messages') {
       loadMessages();
     } else if (activeTab === 'content') {
-      loadContent();
+      if (isContentManagerRole(user?.role)) {
+        loadContent();
+      }
     }
   };
 
@@ -357,13 +362,15 @@ const Admin = () => {
             <Mail className="w-4 h-4 mr-2" />
             Messages ({messages.filter(m => !m.responded).length})
           </button>
-          <button
-            className={`tab ${activeTab === 'content' ? 'tab-active' : ''}`}
-            onClick={() => setActiveTab('content')}
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            À propos & Contact
-          </button>
+          {isContentManagerRole(user?.role) && (
+            <button
+              className={`tab ${activeTab === 'content' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('content')}
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              À propos & Contact
+            </button>
+          )}
         </div>
 
         {/* Gestion des produits */}
@@ -849,7 +856,7 @@ const Admin = () => {
         )}
 
         {/* Contenu du site - À propos & Contact */}
-        {activeTab === 'content' && (
+        {activeTab === 'content' && isContentManagerRole(user?.role) && (
           <div className="space-y-8">
             {loadingContent ? (
               <div className="flex justify-center py-8">

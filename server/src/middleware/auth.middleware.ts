@@ -113,6 +113,26 @@ export const requireAdminManager = async (
   }
 };
 
+// Middleware pour vérifier si l'utilisateur peut gérer le contenu du site
+// (admin et superadmin autorisés, moderator refusé)
+export const requireAdminOrSuperadmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    await requireAdmin(req, res, async () => {
+      const role = req.userRole;
+      if (role !== 'admin' && role !== 'superadmin') {
+        return res.status(403).json({ error: 'Accès refusé. Droits administrateur requis.' });
+      }
+      return next();
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Erreur lors de la vérification des droits' });
+  }
+};
+
 // Middleware pour refuser l'accès aux administrateurs (panier, commandes)
 export const rejectAdmin = async (
   req: AuthRequest,
