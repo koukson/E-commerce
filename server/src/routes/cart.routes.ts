@@ -15,7 +15,10 @@ router.get('/', async (req: AuthRequest, res) => {
     const userId = req.userId!;
 
     const cartItems = await prisma.cartItem.findMany({
-      where: { userId },
+      where: {
+        userId,
+        product: { deletedAt: null },
+      },
       include: {
         product: true,
       },
@@ -62,9 +65,9 @@ router.post(
       const userId = req.userId!;
       const { productId, quantity = 1 } = req.body;
 
-      // Vérifier que le produit existe
-      const product = await prisma.product.findUnique({
-        where: { id: productId },
+      // Vérifier que le produit existe et n'a pas été supprimé
+      const product = await prisma.product.findFirst({
+        where: { id: productId, deletedAt: null },
       });
 
       if (!product) {
@@ -143,9 +146,9 @@ router.put(
       const { productId } = req.params;
       const { quantity } = req.body;
 
-      // Vérifier que le produit existe et le stock disponible
-      const product = await prisma.product.findUnique({
-        where: { id: productId },
+      // Vérifier que le produit existe, n'a pas été supprimé et vérifier le stock disponible
+      const product = await prisma.product.findFirst({
+        where: { id: productId, deletedAt: null },
       });
 
       if (!product) {

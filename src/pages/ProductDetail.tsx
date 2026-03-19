@@ -11,7 +11,9 @@ const ProductDetail = () => {
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const { isAuthenticated, user } = useAuth();
-  const canAddToCart = isAuthenticated && user?.role !== 'admin';
+  const isAdminRole = (role?: string) =>
+    role === 'admin' || role === 'moderator' || role === 'superadmin';
+  const canAddToCart = isAuthenticated && !isAdminRole(user?.role);
   const [quantity, setQuantity] = useState(1);
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);

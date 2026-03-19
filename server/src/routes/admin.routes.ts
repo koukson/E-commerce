@@ -1,6 +1,6 @@
 import express, { Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { authenticateToken, requireAdmin, AuthRequest } from '../middleware/auth.middleware.js';
+import { authenticateToken, requireAdmin, requireAdminManager, AuthRequest } from '../middleware/auth.middleware.js';
 import prisma from '../config/database.js';
 
 const router = express.Router();
@@ -11,10 +11,11 @@ router.use(requireAdmin);
 
 // ========== GESTION DES STOCKS ==========
 
-// Obtenir tous les produits avec leurs stocks
+// Obtenir tous les produits avec leurs stocks (exclut les produits supprimés)
 router.get('/products', async (req: AuthRequest, res: Response) => {
   try {
     const products = await prisma.product.findMany({
+      where: { deletedAt: null },
       orderBy: { name: 'asc' },
     });
 
@@ -22,6 +23,21 @@ router.get('/products', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('Erreur lors de la récupération des produits:', error);
     res.status(500).json({ error: 'Erreur lors de la récupération des produits' });
+  }
+});
+
+// Obtenir tous les produits supprimés
+router.get('/products/deleted', async (req: AuthRequest, res: Response) => {
+  try {
+    const products = await prisma.product.findMany({
+      where: { deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+    });
+
+    res.json({ products });
+  } catch (error: any) {
+    console.error('Erreur lors de la récupération des produits supprimés:', error);
+    res.status(500).json({ error: 'Erreur lors de la récupération des produits supprimés' });
   }
 });
 
@@ -81,15 +97,20 @@ router.put(
   }
 );
 
-// Supprimer un produit
-router.delete('/products/:id', async (req: AuthRequest, res: Response) => {
+// Supprimer un produit (soft delete)
+router.delete('/products/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    await prisma.product.delete({ where: { id } });
-    res.json({ message: 'Produit supprimé avec succès' });
+
+    const product = await prisma.product.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    res.json({ message: 'Produit supprimé avec succès', product });
   } catch (error: any) {
     if (error.code === 'P2025') return res.status(404).json({ error: 'Produit non trouvé' });
-    if (error.code === 'P2003') return res.status(400).json({ error: 'Impossible de supprimer : ce produit est lié à des commandes' });
+    console.error('Erreur lors de la suppression du produit :', error);
     res.status(500).json({ error: 'Erreur lors de la suppression du produit' });
   }
 });
@@ -97,6 +118,7 @@ router.delete('/products/:id', async (req: AuthRequest, res: Response) => {
 // Mettre à jour le stock d'un produit
 router.put(
   '/products/:id/stock',
+  requireAdmin,
   [
     body('stock').isInt({ min: 0 }).withMessage('Le stock doit être un entier positif'),
   ],
@@ -126,10 +148,28 @@ router.put(
   }
 );
 
+// Restaurer un produit supprimé
+router.put('/products/:id/restore', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const product = await prisma.product.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+
+    res.json({ message: 'Produit restauré avec succès', product });
+  } catch (error: any) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Produit non trouvé' });
+    console.error('Erreur lors de la restauration du produit :', error);
+    res.status(500).json({ error: 'Erreur lors de la restauration du produit' });
+  }
+});
+
 // ========== GESTION DES COMMANDES ==========
 
 // Obtenir toutes les commandes
-router.get('/orders', async (req: AuthRequest, res: Response) => {
+router.get('/orders', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const orders = await prisma.order.findMany({
       include: {
@@ -157,7 +197,7 @@ router.get('/orders', async (req: AuthRequest, res: Response) => {
 });
 
 // Obtenir une commande spécifique
-router.get('/orders/:id', async (req: AuthRequest, res: Response) => {
+router.get('/orders/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -193,6 +233,7 @@ router.get('/orders/:id', async (req: AuthRequest, res: Response) => {
 // Mettre à jour le statut d'une commande
 router.put(
   '/orders/:id/status',
+  requireAdmin,
   [
     body('status')
       .isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled'])
@@ -206,25 +247,60 @@ router.put(
       }
 
       const { id } = req.params;
-      const { status } = req.body;
+      const { status: newStatus } = req.body;
 
-      const order = await prisma.order.update({
+      // Récupérer la commande actuelle pour vérifier le statut et les articles
+      const existingOrder = await prisma.order.findUnique({
         where: { id },
-        data: { status },
         include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
           items: {
-            include: {
-              product: true,
+            select: {
+              productId: true,
+              quantity: true,
             },
           },
         },
+      });
+
+      if (!existingOrder) {
+        return res.status(404).json({ error: 'Commande non trouvée' });
+      }
+
+      const shouldRestock = newStatus === 'cancelled' && existingOrder.status !== 'cancelled';
+
+      const order = await prisma.$transaction(async (tx) => {
+        if (shouldRestock) {
+          // Restock the products when an order is cancelled
+          for (const item of existingOrder.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                stock: {
+                  increment: item.quantity,
+                },
+              },
+            });
+          }
+        }
+
+        return tx.order.update({
+          where: { id },
+          data: { status: newStatus },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+            items: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        });
       });
 
       res.json({ message: 'Statut de la commande mis à jour', order });
@@ -238,10 +314,299 @@ router.put(
   }
 );
 
-// ========== GESTION DES MESSAGES ==========
+// ========== GESTION DES UTILISATEURS ==========
+
+// Obtenir tous les utilisateurs (sauf superadmin pour les non-superadmin)
+router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const currentUserRole = req.userRole;
+    const where: any = {};
+
+    // Les admins ne peuvent pas voir les superadmin
+    if (currentUserRole !== 'superadmin') {
+      where.role = { not: 'superadmin' };
+    }
+
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ users });
+  } catch (error: any) {
+    console.error('Erreur lors de la récupération des utilisateurs:', error);
+    res.status(500).json({ error: 'Erreur lors de la récupération des utilisateurs' });
+  }
+});
+
+// Créer un nouvel utilisateur/admin
+router.post(
+  '/users',
+  requireAdmin,
+  [
+    body('name').trim().isLength({ min: 2 }).withMessage('Le nom doit contenir au moins 2 caractères'),
+    body('email').isEmail().withMessage('Email invalide'),
+    body('password').isLength({ min: 6 }).withMessage('Le mot de passe doit contenir au moins 6 caractères'),
+    body('role').isIn(['user', 'moderator', 'admin']).withMessage('Rôle invalide'),
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { name, email, password, role } = req.body;
+      const currentUserRole = req.userRole;
+
+      // Vérifier que l'utilisateur actuel peut créer ce rôle
+      if (role === 'admin' && currentUserRole !== 'superadmin') {
+        return res.status(403).json({ error: 'Seul un super administrateur peut créer des administrateurs' });
+      }
+
+      // Vérifier si l'utilisateur existe déjà
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingUser) {
+        return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+      }
+
+      // Hasher le mot de passe
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Créer l'utilisateur
+      const user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+
+      res.status(201).json({ message: 'Utilisateur créé avec succès', user });
+    } catch (error: any) {
+      console.error('Erreur lors de la création de l\'utilisateur:', error);
+      res.status(500).json({ error: 'Erreur lors de la création de l\'utilisateur' });
+    }
+  }
+);
+
+// Modifier un utilisateur
+router.put(
+  '/users/:id',
+  requireAdmin,
+  [
+    body('name').optional().trim().isLength({ min: 2 }),
+    body('email').optional().isEmail(),
+    body('role').optional().isIn(['user', 'moderator', 'admin']),
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { name, email, role } = req.body;
+      const currentUserRole = req.userRole;
+
+      // Vérifier que l'utilisateur à modifier existe
+      const userToUpdate = await prisma.user.findUnique({
+        where: { id },
+        select: { role: true, email: true },
+      });
+
+      if (!userToUpdate) {
+        return res.status(404).json({ error: 'Utilisateur non trouvé' });
+      }
+
+      // Empêcher la modification des superadmin par les non-superadmin
+      if (userToUpdate.role === 'superadmin' && currentUserRole !== 'superadmin') {
+        return res.status(403).json({ error: 'Vous ne pouvez pas modifier un super administrateur' });
+      }
+
+      // Vérifier que l'utilisateur actuel peut attribuer ce rôle
+      if (role === 'admin' && currentUserRole !== 'superadmin') {
+        return res.status(403).json({ error: 'Seul un super administrateur peut attribuer le rôle administrateur' });
+      }
+
+      // Vérifier l'unicité de l'email si modifié
+      if (email && email !== userToUpdate.email) {
+        const existingUser = await prisma.user.findUnique({
+          where: { email },
+        });
+        if (existingUser) {
+          return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+        }
+      }
+
+      // Préparer les données de mise à jour
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (email) updateData.email = email;
+      if (role) updateData.role = role;
+
+      const user = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          updatedAt: true,
+        },
+      });
+
+      res.json({ message: 'Utilisateur modifié avec succès', user });
+    } catch (error: any) {
+      console.error('Erreur lors de la modification de l\'utilisateur:', error);
+      res.status(500).json({ error: 'Erreur lors de la modification de l\'utilisateur' });
+    }
+  }
+);
+
+// Supprimer un utilisateur
+router.delete('/users/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const currentUserRole = req.userRole;
+
+    // Vérifier que l'utilisateur à supprimer existe
+    const userToDelete = await prisma.user.findUnique({
+      where: { id },
+      select: { role: true },
+    });
+
+    if (!userToDelete) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    // Empêcher la suppression des superadmin par les non-superadmin
+    if (userToDelete.role === 'superadmin' && currentUserRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Vous ne pouvez pas supprimer un super administrateur' });
+    }
+
+    // Empêcher la suppression de soi-même
+    if (id === req.userId) {
+      return res.status(400).json({ error: 'Vous ne pouvez pas vous supprimer vous-même' });
+    }
+
+    await prisma.user.delete({
+      where: { id },
+    });
+
+    res.json({ message: 'Utilisateur supprimé avec succès' });
+  } catch (error: any) {
+    console.error('Erreur lors de la suppression de l\'utilisateur:', error);
+    res.status(500).json({ error: 'Erreur lors de la suppression de l\'utilisateur' });
+  }
+});
+
+// ========== GESTION DES ADMINISTRATEURS (SUPERADMIN UNIQUEMENT) ==========
+
+// Obtenir tous les administrateurs
+router.get('/admins', requireAdminManager, async (req: AuthRequest, res: Response) => {
+  try {
+    const admins = await prisma.user.findMany({
+      where: {
+        role: { in: ['moderator', 'admin', 'superadmin'] },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { role: 'desc' }, // superadmin en premier
+    });
+
+    res.json({ admins });
+  } catch (error: any) {
+    console.error('Erreur lors de la récupération des administrateurs:', error);
+    res.status(500).json({ error: 'Erreur lors de la récupération des administrateurs' });
+  }
+});
+
+// Modifier le rôle d'un administrateur
+router.put(
+  '/admins/:id/role',
+  requireAdminManager,
+  [
+    body('role').isIn(['moderator', 'admin', 'superadmin']).withMessage('Rôle invalide'),
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const { role } = req.body;
+
+      // Vérifier que l'utilisateur existe et est un admin
+      const adminToUpdate = await prisma.user.findUnique({
+        where: { id },
+        select: { role: true, name: true },
+      });
+
+      if (!adminToUpdate) {
+        return res.status(404).json({ error: 'Administrateur non trouvé' });
+      }
+
+      if (!['moderator', 'admin', 'superadmin'].includes(adminToUpdate.role)) {
+        return res.status(400).json({ error: 'Cet utilisateur n\'est pas un administrateur' });
+      }
+
+      // Empêcher la modification de son propre rôle
+      if (id === req.userId) {
+        return res.status(400).json({ error: 'Vous ne pouvez pas modifier votre propre rôle' });
+      }
+
+      const user = await prisma.user.update({
+        where: { id },
+        data: { role },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          updatedAt: true,
+        },
+      });
+
+      res.json({ message: 'Rôle modifié avec succès', user });
+    } catch (error: any) {
+      console.error('Erreur lors de la modification du rôle:', error);
+      res.status(500).json({ error: 'Erreur lors de la modification du rôle' });
+    }
+  }
+);
 
 // Obtenir tous les messages de contact
-router.get('/messages', async (req: AuthRequest, res: Response) => {
+router.get('/messages', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { responded } = req.query;
 
@@ -263,7 +628,7 @@ router.get('/messages', async (req: AuthRequest, res: Response) => {
 });
 
 // Obtenir un message spécifique
-router.get('/messages/:id', async (req: AuthRequest, res: Response) => {
+router.get('/messages/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -306,7 +671,7 @@ const DEFAULT_CONTACT = {
   address: '123 rue du Commerce, 75001 Paris, France',
 };
 
-router.get('/settings/about', async (req: AuthRequest, res: Response) => {
+router.get('/settings/about', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const settings = await prisma.siteSettings.findUnique({ where: { key: 'about' } });
     const content = settings?.content ? JSON.parse(settings.content) : DEFAULT_ABOUT;
@@ -316,7 +681,7 @@ router.get('/settings/about', async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.put('/settings/about', async (req: AuthRequest, res: Response) => {
+router.put('/settings/about', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const content = req.body;
     await prisma.siteSettings.upsert({
@@ -330,7 +695,7 @@ router.put('/settings/about', async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.get('/settings/contact', async (req: AuthRequest, res: Response) => {
+router.get('/settings/contact', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const settings = await prisma.siteSettings.findUnique({ where: { key: 'contact' } });
     const content = settings?.content ? JSON.parse(settings.content) : DEFAULT_CONTACT;
@@ -340,7 +705,7 @@ router.get('/settings/contact', async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.put('/settings/contact', async (req: AuthRequest, res: Response) => {
+router.put('/settings/contact', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const content = req.body;
     await prisma.siteSettings.upsert({
@@ -357,6 +722,7 @@ router.put('/settings/contact', async (req: AuthRequest, res: Response) => {
 // Répondre à un message
 router.post(
   '/messages/:id/respond',
+  requireAdmin,
   [
     body('response').trim().notEmpty().withMessage('La réponse est requise'),
   ],

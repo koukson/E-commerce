@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, ShoppingBag, Mail, Edit, Check, X, Eye, FileText, MapPin, Plus, Trash2 } from 'lucide-react';
+import { Package, ShoppingBag, Mail, Edit, Check, X, Eye, FileText, MapPin, Plus, Trash2, RotateCcw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../config/api';
 import { Product, Order, ContactMessage } from '../types';
@@ -8,7 +8,7 @@ import { Product, Order, ContactMessage } from '../types';
 const Admin = () => {
   const { user, isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'stocks' | 'orders' | 'messages' | 'content'>('stocks');
+  const [activeTab, setActiveTab] = useState<'stocks' | 'deleted-products' | 'orders' | 'messages' | 'content'>('stocks');
   
   // Produits
   const [products, setProducts] = useState<Product[]>([]);
@@ -18,6 +18,10 @@ const Admin = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [savingProduct, setSavingProduct] = useState(false);
 
+  // Produits supprimés
+  const [deletedProducts, setDeletedProducts] = useState<Product[]>([]);
+  const [loadingDeletedProducts, setLoadingDeletedProducts] = useState(false);
+
   // Commandes
   const [orders, setOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -26,15 +30,17 @@ const Admin = () => {
   // Messages
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
-  const [selectedMessage, setSelectedMessage] = useState<ContactMessage | null>(null);
   const [responseTexts, setResponseTexts] = useState<{ [key: string]: string }>({});
   const [filterResponded, setFilterResponded] = useState<boolean | undefined>(undefined);
+
+  const isAdminRole = (role?: string) =>
+    role === 'admin' || role === 'moderator' || role === 'superadmin';
 
   useEffect(() => {
     if (loading) {
       return;
     }
-    if (!isAuthenticated || user?.role !== 'admin') {
+    if (!isAuthenticated || !isAdminRole(user?.role)) {
       navigate('/');
       return;
     }
@@ -44,6 +50,8 @@ const Admin = () => {
   const loadData = () => {
     if (activeTab === 'stocks') {
       loadProducts();
+    } else if (activeTab === 'deleted-products') {
+      loadDeletedProducts();
     } else if (activeTab === 'orders') {
       loadOrders();
     } else if (activeTab === 'messages') {
@@ -139,6 +147,30 @@ const Admin = () => {
       alert('Erreur lors du chargement des produits');
     } finally {
       setLoadingStocks(false);
+    }
+  };
+
+  const loadDeletedProducts = async () => {
+    try {
+      setLoadingDeletedProducts(true);
+      const response = await api.get<{ products: Product[] }>('/admin/products/deleted');
+      setDeletedProducts(response.products);
+    } catch (error: any) {
+      console.error('Erreur lors du chargement des produits supprimés:', error);
+      alert('Erreur lors du chargement des produits supprimés');
+    } finally {
+      setLoadingDeletedProducts(false);
+    }
+  };
+
+  const handleRestoreProduct = async (productId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir restaurer ce produit ?')) return;
+    try {
+      await api.put(`/admin/products/${productId}/restore`);
+      alert('Produit restauré avec succès');
+      loadDeletedProducts();
+    } catch (error: any) {
+      alert(error.message || 'Erreur lors de la restauration du produit');
     }
   };
 
@@ -258,13 +290,26 @@ const Admin = () => {
         delete newTexts[messageId];
         return newTexts;
       });
-      setSelectedMessage(null);
       loadMessages();
     } catch (error: any) {
       console.error('Erreur lors de l\'envoi de la réponse:', error);
       alert('Erreur lors de l\'envoi de la réponse');
     }
   };
+
+  // ========== GESTION DU CONTENU ==========
+
+
+
+
+
+
+
+
+
+
+
+
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -274,17 +319,6 @@ const Admin = () => {
       case 'delivered': return 'badge-success';
       case 'cancelled': return 'badge-error';
       default: return 'badge-ghost';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'pending': return 'En attente';
-      case 'processing': return 'En traitement';
-      case 'shipped': return 'Expédiée';
-      case 'delivered': return 'Livrée';
-      case 'cancelled': return 'Annulée';
-      default: return status;
     }
   };
 
@@ -301,6 +335,13 @@ const Admin = () => {
           >
             <Package className="w-4 h-4 mr-2" />
             Produits
+          </button>
+          <button
+            className={`tab ${activeTab === 'deleted-products' ? 'tab-active' : ''}`}
+            onClick={() => setActiveTab('deleted-products')}
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Produits supprimés
           </button>
           <button
             className={`tab ${activeTab === 'orders' ? 'tab-active' : ''}`}
@@ -537,6 +578,75 @@ const Admin = () => {
           </dialog>
         )}
 
+        {/* Gestion des produits supprimés */}
+        {activeTab === 'deleted-products' && (
+          <div className="card bg-base-100 shadow-xl">
+            <div className="card-body">
+              <h2 className="card-title mb-4">Produits supprimés</h2>
+              {loadingDeletedProducts ? (
+                <div className="flex justify-center py-8">
+                  <span className="loading loading-spinner loading-lg"></span>
+                </div>
+              ) : deletedProducts.length === 0 ? (
+                <div className="text-center py-8 text-base-content/70">
+                  Aucun produit supprimé
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table table-zebra">
+                    <thead>
+                      <tr>
+                        <th>Produit</th>
+                        <th>Catégorie</th>
+                        <th>Prix</th>
+                        <th>Stock</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deletedProducts.map((product) => (
+                        <tr key={product.id}>
+                          <td>
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={product.image}
+                                alt={product.name}
+                                className="w-12 h-12 object-cover rounded"
+                              />
+                              <div>
+                                <div className="font-bold">{product.name}</div>
+                                <div className="text-sm text-base-content/70">
+                                  {product.description.substring(0, 50)}...
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>{product.category}</td>
+                          <td>{product.price.toFixed(2)} €</td>
+                          <td>
+                            <span className="badge badge-ghost">
+                              {product.stock}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-sm btn-success"
+                              onClick={() => handleRestoreProduct(product.id)}
+                            >
+                              <RotateCcw className="w-4 h-4 mr-2" />
+                              Restaurer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Gestion des commandes */}
         {activeTab === 'orders' && (
           <div className="space-y-4">
@@ -579,15 +689,29 @@ const Admin = () => {
                         </div>
                         <div className="flex flex-col items-end gap-2">
                           <p className="text-2xl font-bold">{order.total.toFixed(2)} €</p>
-                          <button
-                            className="btn btn-sm btn-outline"
-                            onClick={() =>
-                              setSelectedOrder(selectedOrder?.id === order.id ? null : order)
-                            }
-                          >
-                            <Eye className="w-4 h-4 mr-2" />
-                            {selectedOrder?.id === order.id ? 'Masquer' : 'Détails'}
-                          </button>
+                          <div className="flex flex-wrap gap-2 justify-end">
+                            <button
+                              className="btn btn-sm btn-outline"
+                              onClick={() =>
+                                setSelectedOrder(selectedOrder?.id === order.id ? null : order)
+                              }
+                            >
+                              <Eye className="w-4 h-4 mr-2" />
+                              {selectedOrder?.id === order.id ? 'Masquer' : 'Détails'}
+                            </button>
+                            {(order.status === 'pending' || order.status === 'processing') && (
+                              <button
+                                className="btn btn-sm btn-error"
+                                onClick={() => {
+                                  if (confirm('Êtes-vous sûr de vouloir annuler cette commande ?')) {
+                                    handleStatusUpdate(order.id, 'cancelled');
+                                  }
+                                }}
+                              >
+                                Annuler la commande
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -834,6 +958,7 @@ const Admin = () => {
             )}
           </div>
         )}
+
       </div>
     </div>
   );

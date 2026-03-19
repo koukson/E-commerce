@@ -14,7 +14,9 @@ router.get('/', async (req, res) => {
     const limitNum = parseInt(limit as string);
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
+    const where: any = {
+      deletedAt: null,
+    };
 
     if (category && category !== 'Tous') {
       where.category = category as string;
@@ -58,8 +60,8 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const product = await prisma.product.findUnique({
-      where: { id },
+const product = await prisma.product.findFirst({
+    where: { id, deletedAt: null },
     });
 
     if (!product) {
@@ -143,13 +145,14 @@ router.put(
   }
 );
 
-// Supprimer un produit (admin uniquement)
+// Supprimer un produit (admin uniquement) - soft delete
 router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    await prisma.product.delete({
+    await prisma.product.update({
       where: { id },
+      data: { deletedAt: new Date() },
     });
 
     res.json({ message: 'Produit supprimé avec succès' });
@@ -166,6 +169,7 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
 router.get('/categories/list', async (req, res) => {
   try {
     const categories = await prisma.product.findMany({
+      where: { deletedAt: null },
       select: {
         category: true,
       },

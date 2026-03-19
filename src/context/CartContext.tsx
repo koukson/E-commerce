@@ -7,29 +7,29 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [items, setItems] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(false);
   const { isAuthenticated, user } = useAuth();
+
+  const isAdminRole = (role?: string) =>
+    role === 'admin' || role === 'moderator' || role === 'superadmin';
 
   // Charger le panier depuis l'API quand l'utilisateur est connecté (sauf admin)
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token && isAuthenticated && user?.role !== 'admin') {
+    if (token && isAuthenticated && !isAdminRole(user?.role)) {
       loadCart();
-    } else if (!isAuthenticated || user?.role === 'admin') {
+    } else if (!isAuthenticated || isAdminRole(user?.role)) {
       setItems([]);
     }
   }, [isAuthenticated, user?.role]);
 
   const loadCart = async () => {
     try {
-      setLoading(true);
       const response = await api.get<{ items: CartItem[]; total: number; itemCount: number }>('/cart');
       setItems(response.items);
     } catch (error: any) {
       console.error('Erreur lors du chargement du panier:', error);
       setItems([]);
     } finally {
-      setLoading(false);
     }
   };
 

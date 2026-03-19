@@ -12,7 +12,8 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "seed": "tsx src/scripts/seed.ts",
-    "create:admin": "tsx src/scripts/createAdmin.ts"
+    "create:admin": "tsx src/scripts/createAdmin.ts",
+    "list:users": "tsx src/scripts/listUsers.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",

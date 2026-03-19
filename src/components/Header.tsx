@@ -2,16 +2,16 @@ import { Link } from 'react-router-dom';
 import { ShoppingCart, User, LogOut, Menu, Package, Settings } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { useState } from 'react';
 
 const Header = () => {
   const { user, logout, isAuthenticated } = useAuth();
   const { itemCount } = useCart();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const isAdminRole = (role?: string) =>
+    role === 'admin' || role === 'moderator' || role === 'superadmin';
 
   const handleLogout = () => {
     logout();
-    setMobileMenuOpen(false);
   };
 
   return (
@@ -26,28 +26,28 @@ const Header = () => {
             className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52"
           >
             <li>
-              <Link to="/" onClick={() => setMobileMenuOpen(false)}>
+              <Link to="/">
                 Accueil
               </Link>
             </li>
             <li>
-              <Link to="/products" onClick={() => setMobileMenuOpen(false)}>
+              <Link to="/products">
                 Produits
               </Link>
             </li>
             <li>
-              <Link to="/about" onClick={() => setMobileMenuOpen(false)}>
+              <Link to="/about">
                 À propos
               </Link>
             </li>
             <li>
-              <Link to="/contact" onClick={() => setMobileMenuOpen(false)}>
+              <Link to="/contact">
                 Contact
               </Link>
             </li>
-            {isAuthenticated && user?.role !== 'admin' && (
+            {isAuthenticated && !isAdminRole(user?.role) && (
               <li>
-                <Link to="/cart" onClick={() => setMobileMenuOpen(false)}>
+                <Link to="/cart">
                   Panier ({itemCount})
                 </Link>
               </li>
@@ -85,7 +85,7 @@ const Header = () => {
       <div className="navbar-end">
         {isAuthenticated ? (
           <>
-            {user?.role !== 'admin' && (
+            {!isAdminRole(user?.role) && (
               <Link to="/cart" className="btn btn-ghost btn-circle relative">
                 <ShoppingCart className="w-5 h-5" />
                 {itemCount > 0 && (
@@ -111,7 +111,7 @@ const Header = () => {
                     <span className="badge">{user?.name}</span>
                   </Link>
                 </li>
-                {user?.role !== 'admin' && (
+                {!isAdminRole(user?.role) && (
                   <li>
                     <Link to="/orders">
                       <Package className="w-4 h-4" />
@@ -119,7 +119,7 @@ const Header = () => {
                     </Link>
                   </li>
                 )}
-                {user?.role === 'admin' && (
+                {isAdminRole(user?.role) && (
                   <li>
                     <Link to="/admin">
                       <Settings className="w-4 h-4" />

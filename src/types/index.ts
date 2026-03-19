@@ -14,6 +14,7 @@ export interface Product {
   image: string;
   category: string;
   stock: number;
+  deletedAt?: string;
 }
 
 export interface CartItem {

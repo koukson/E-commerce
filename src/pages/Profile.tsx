@@ -6,6 +6,9 @@ const Profile = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
+  const isAdminRole = (role?: string) =>
+    role === 'admin' || role === 'moderator' || role === 'superadmin';
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -28,7 +31,7 @@ const Profile = () => {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-4xl font-bold">Mon Profil</h1>
           <span className="badge badge-outline">
-            Rôle : {user.role === 'admin' ? 'Administrateur' : 'Client'}
+            Rôle : {isAdminRole(user.role) ? 'Administrateur' : 'Client'}
           </span>
         </div>
 
@@ -71,7 +74,7 @@ const Profile = () => {
             <div className="divider"></div>
 
             <div className="space-y-4">
-              {user.role === 'admin' ? (
+              {isAdminRole(user.role) ? (
                 <>
                   <div className="alert alert-info">
                     <Shield className="w-5 h-5 mr-2" />

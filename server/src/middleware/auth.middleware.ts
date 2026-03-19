@@ -63,7 +63,8 @@ export const requireAdmin = async (
       select: { role: true },
     });
 
-    if (!user || user.role !== 'admin') {
+    const adminRoles = ['admin', 'moderator', 'superadmin'];
+    if (!user || !adminRoles.includes(user.role)) {
       return res.status(403).json({ error: 'Accès refusé. Droits administrateur requis.' });
     }
 
@@ -74,6 +75,41 @@ export const requireAdmin = async (
       return res.status(403).json({ error: 'Token invalide' });
     }
     return res.status(500).json({ error: 'Erreur lors de la vérification des droits' });
+  }
+};
+
+// Middleware pour vérifier si l'utilisateur est superadmin (gestion des admins)
+export const requireAdminManager = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // Réutiliser requireAdmin pour vérifier l'authentification et le rôle de base
+    await requireAdmin(req, res, async (err?: any) => {
+      if (err) {
+        return;
+      }
+
+      const userId = req.userId;
+      if (!userId) {
+        return res.status(401).json({ error: 'Non authentifié' });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+
+      if (!user || user.role !== 'superadmin') {
+        return res.status(403).json({ error: 'Accès refusé. Droits super administrateur requis.' });
+      }
+
+      req.userRole = user.role;
+      next();
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Erreur lors de la vérification des droits superadmin' });
   }
 };
 
@@ -94,7 +130,8 @@ export const rejectAdmin = async (
       select: { role: true },
     });
 
-    if (user?.role === 'admin') {
+    const adminRoles = ['admin', 'moderator', 'superadmin'];
+    if (user && adminRoles.includes(user.role)) {
       return res.status(403).json({ error: 'Les administrateurs ne peuvent pas utiliser le panier ni passer de commande.' });
     }
 

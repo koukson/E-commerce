@@ -56,7 +56,10 @@ const Cart = () => {
     );
   }
 
-  if (user?.role === 'admin') {
+  const isAdminRole = (role?: string) =>
+    role === 'admin' || role === 'moderator' || role === 'superadmin';
+
+  if (isAdminRole(user?.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">

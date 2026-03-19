@@ -7,10 +7,14 @@ export const api = {
   ): Promise<T> {
     const token = localStorage.getItem('token');
     
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
     };
+
+    // Merge additional headers if provided
+    if (options.headers) {
+      Object.assign(headers, options.headers);
+    }
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;

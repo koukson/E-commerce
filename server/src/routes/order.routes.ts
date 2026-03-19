@@ -13,9 +13,14 @@ router.post('/create', rejectAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId!;
 
-    // Récupérer les articles du panier
+    // Récupérer les articles du panier (exclut les produits supprimés)
     const cartItems = await prisma.cartItem.findMany({
-      where: { userId },
+      where: {
+        userId,
+        product: {
+          deletedAt: null,
+        },
+      },
       include: {
         product: true,
       },
