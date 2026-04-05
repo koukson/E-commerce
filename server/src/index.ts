@@ -3,13 +3,13 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import authRoutes from './routes/auth.routes';
-import productRoutes from './routes/product.routes';
-import cartRoutes from './routes/cart.routes';
-import orderRoutes from './routes/order.routes';
-import adminRoutes from './routes/admin.routes';
-import contactRoutes from './routes/contact.routes';
-import settingsRoutes from './routes/settings.routes';
+import authRoutes from './routes/auth.routes.js';
+import productRoutes from './routes/product.routes.js';
+import cartRoutes from './routes/cart.routes.js';
+import orderRoutes from './routes/order.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+import contactRoutes from './routes/contact.routes.js';
+import settingsRoutes from './routes/settings.routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
