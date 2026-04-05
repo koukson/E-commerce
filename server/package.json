@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Backend API pour l'application e-commerce",
   "main": "dist/index.js",
-  "type": "module",
+  "type": "CommonJS",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
